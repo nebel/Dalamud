@@ -23,6 +23,13 @@ namespace Dalamud.Game.Text.SeStringHandling;
 /// </summary>
 public abstract partial class Payload
 {
+    public string Inspect()
+    {
+        return $"Payload: {this.Type}\n" +
+                    $"  {(this.encodedData == null ? "<NULL>" : BitConverter.ToString(this.encodedData).Replace("-", " "))}" +
+                    $" => {System.Text.Encoding.UTF8.GetString(this.encodedData)}";
+    }
+
     // private for now, since subclasses shouldn't interact with this.
     // To force-invalidate it, Dirty can be set to true
     private byte[] encodedData;
@@ -120,6 +127,7 @@ public abstract partial class Payload
 
         reader.ReadByte(); // START_BYTE
         var chunkType = (SeStringChunkType)reader.ReadByte();
+        EmbeddedInfoType? subType = null;
         var chunkLen = GetInteger(reader);
 
         var packetStart = reader.BaseStream.Position;
@@ -141,7 +149,7 @@ public abstract partial class Payload
 
             case SeStringChunkType.Interactable:
                 {
-                    var subType = (EmbeddedInfoType)reader.ReadByte();
+                    subType = (EmbeddedInfoType)reader.ReadByte();
                     switch (subType)
                     {
                         case EmbeddedInfoType.PlayerName:
@@ -208,11 +216,11 @@ public abstract partial class Payload
                 break;
 
             default:
-                Log.Verbose("Unhandled SeStringChunkType: {0}", chunkType);
+                // Log.Verbose("Unhandled SeStringChunkType: {0}", chunkType);
                 break;
         }
 
-        payload ??= new RawPayload((byte)chunkType);
+        payload ??= new RawPayload((byte)chunkType, (byte?)subType, chunkLen);
         payload.DecodeImpl(reader, reader.BaseStream.Position + chunkLen - 1);
 
         // read through the rest of the packet

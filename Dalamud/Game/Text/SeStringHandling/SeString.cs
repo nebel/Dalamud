@@ -9,6 +9,7 @@ using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Utility;
 using Lumina.Excel.GeneratedSheets;
 using Newtonsoft.Json;
+using Serilog;
 
 namespace Dalamud.Game.Text.SeStringHandling;
 
@@ -114,6 +115,7 @@ public class SeString
             return Empty;
 
         var payloads = new List<Payload>();
+        var hasUnknown = false;
 
         using (var stream = new UnmanagedMemoryStream(ptr, len))
         using (var reader = new BinaryReader(stream))
@@ -122,8 +124,40 @@ public class SeString
             {
                 var payload = Payload.Decode(reader);
                 if (payload != null)
+                {
+                    if (payload is RawPayload raw && !raw.isKnownType())
+                    {
+                        hasUnknown = true;
+                    }
+
                     payloads.Add(payload);
+                }
             }
+        }
+
+        if (hasUnknown)
+        {
+            var types = new List<string>();
+            var ins = new StringBuilder();
+
+            for (var index = 0; index < payloads.Count; index++)
+            {
+                var payload = payloads[index];
+                types.Add(payload.Type.ToString());
+                ins.Append(index).Append(' ');
+                if (payload is RawPayload raw)
+                {
+                    ins.Append(raw.InspectRaw());
+                }
+                else
+                {
+                    ins.Append(payload.Inspect());
+                }
+
+                ins.Append('\n');
+            }
+
+            Log.Verbose($"SeString with Unknown payload ({string.Join(',', types)}) \n" + ins);
         }
 
         return new SeString(payloads);

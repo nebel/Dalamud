@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 
 using Newtonsoft.Json;
+using Serilog;
 
 namespace Dalamud.Game.Text.SeStringHandling.Payloads;
 
@@ -14,11 +15,54 @@ namespace Dalamud.Game.Text.SeStringHandling.Payloads;
 /// </summary>
 public class RawPayload : Payload
 {
+
+    public bool isKnownType()
+    {
+        if (this.data.Length == 0)
+        {
+            return false;
+        }
+
+        if (this.subType == null)
+        {
+            return false;
+        }
+
+        if ((SeStringChunkType)this.chunkType == SeStringChunkType.Interactable
+            && (EmbeddedInfoType)this.subType == EmbeddedInfoType.LinkTerminator)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    public string InspectRaw()
+    {
+        string s;
+        if (this.subType != null)
+        {
+            s = $"Payload: RAW[{(int)this.chunkType}/{(int)this.subType}] (0x{(int)this.chunkType:X}/0x{(int)this.subType:X})";
+        }
+        else
+        {
+            s = $"Payload: RAW[{(int)this.chunkType}] (0x{(int)this.chunkType:X})";
+        }
+
+        return s + $" (len={this.chunkLen}) \n" +
+                    $"  {(this.data.Length == 0 ? "<EMPTY>" : BitConverter.ToString(this.data).Replace("-", " "))}" +
+                    $" => {System.Text.Encoding.UTF8.GetString(this.data)}";
+    }
+
     [JsonProperty]
     private byte chunkType;
 
+    private uint chunkLen;
+
     [JsonProperty]
-    private byte[] data;
+    internal byte[] data;
+
+    private readonly byte? subType;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RawPayload"/> class.
@@ -38,9 +82,11 @@ public class RawPayload : Payload
     /// </summary>
     /// <param name="chunkType">The chunk type.</param>
     [JsonConstructor]
-    internal RawPayload(byte chunkType)
+    internal RawPayload(byte chunkType, byte? subType, uint chunkLen)
     {
         this.chunkType = chunkType;
+        this.subType = subType;
+        this.chunkLen = chunkLen;
     }
 
     /// <summary>
