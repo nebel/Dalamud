@@ -980,7 +980,7 @@ internal class PluginInstallerWindow : Window, IDisposable
             changelogs = this.dalamudChangelogManager.Changelogs.OfType<PluginChangelogEntry>();
         }
 
-        var sortedChangelogs = changelogs?.Where(x => this.searchText.IsNullOrWhitespace() || new FuzzyMatcher(this.searchText.ToLowerInvariant(), MatchMode.FuzzyParts).Matches(x.Title.ToLowerInvariant()) > 0)
+        var sortedChangelogs = changelogs?.Where(x => this.searchText.IsNullOrWhitespace() || new FuzzyMatcher(this.searchText.ToLowerInvariant()).Matches(x.Title.ToLowerInvariant()) > 0)
                                                             .OrderByDescending(x => x.Date).ToList();
 
         if (sortedChangelogs == null || !sortedChangelogs.Any())
@@ -2880,7 +2880,6 @@ internal class PluginInstallerWindow : Window, IDisposable
 
     private bool IsManifestFiltered(IPluginManifest manifest)
     {
-        var matcher = new FuzzyMatcher(this.searchText.ToLowerInvariant(), MatchMode.FuzzyParts);
         var hasSearchString = !string.IsNullOrWhiteSpace(this.searchText);
         var oldApi = manifest.DalamudApiLevel < PluginManager.DalamudApiLevel;
         var installed = this.IsManifestInstalled(manifest).IsInstalled;
@@ -2888,12 +2887,34 @@ internal class PluginInstallerWindow : Window, IDisposable
         if (oldApi && !hasSearchString && !installed)
             return true;
 
-        return hasSearchString && !(
-                                       (!manifest.Name.IsNullOrEmpty() && matcher.Matches(manifest.Name.ToLowerInvariant()) > 0) ||
-                                       (!manifest.InternalName.IsNullOrEmpty() && matcher.Matches(manifest.InternalName.ToLowerInvariant()) > 0) ||
-                                       (!manifest.Author.IsNullOrEmpty() && matcher.Matches(manifest.Author.ToLowerInvariant()) > 0) ||
-                                       // (!manifest.Punchline.IsNullOrEmpty() && matcher.Matches(manifest.Punchline.ToLowerInvariant()) > 0) || // Removed because fuzzy match gets a little too excited with lots of random words
-                                       (manifest.Tags != null && matcher.MatchesAny(manifest.Tags.Select(term => term.ToLowerInvariant()).ToArray()) > 0));
+        if (!hasSearchString)
+            return false;
+
+        var matcher = new FuzzyMatcher(this.searchText.ToLowerInvariant());
+        var VAL = 50;
+
+        var name = !manifest.Name.IsNullOrEmpty() ? manifest.Name : manifest.InternalName;
+        var score1 = !manifest.Name.IsNullOrEmpty() ? matcher.Matches(manifest.Name.ToLowerInvariant()) : -1;
+        var score2 = !manifest.InternalName.IsNullOrEmpty() ? matcher.Matches(manifest.InternalName.ToLowerInvariant()) : -1;
+        var score3 = !manifest.Author.IsNullOrEmpty() ? matcher.Matches(manifest.Author.ToLowerInvariant()) : -1;
+        var score4 = !manifest.Punchline.IsNullOrEmpty() ? matcher.Matches(manifest.Punchline.ToLowerInvariant()) : -1;
+        var score5 = manifest.Tags != null ? matcher.MatchesAny(manifest.Tags.Select(term => term.ToLowerInvariant()).ToArray()) : -1;
+
+        var max = int.Max(int.Max(int.Max(int.Max(score1, score2), score3), score4), score5);
+
+        var filtered = !(
+                   (!manifest.Name.IsNullOrEmpty() && matcher.Matches(manifest.Name.ToLowerInvariant()) > VAL) ||
+                   (!manifest.InternalName.IsNullOrEmpty() && matcher.Matches(manifest.InternalName.ToLowerInvariant()) > VAL) ||
+                   (!manifest.Author.IsNullOrEmpty() && matcher.Matches(manifest.Author.ToLowerInvariant()) > VAL) ||
+                   (!manifest.Punchline.IsNullOrEmpty() && matcher.Matches(manifest.Punchline.ToLowerInvariant()) > VAL) || // Removed because fuzzy match gets a little too excited with lots of random words
+                   (manifest.Tags != null && matcher.MatchesAny(manifest.Tags.Select(term => term.ToLowerInvariant()).ToArray()) > VAL));
+
+        if (!filtered)
+        {
+            Log.Warning($"FM: {name,-30} {max,4} = ({score1,4}|{score2,4}|{score3,4}|{score4,4}|{score5,4})");
+        }
+
+        return filtered;
     }
 
     private (bool IsInstalled, LocalPlugin Plugin) IsManifestInstalled(IPluginManifest? manifest)

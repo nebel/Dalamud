@@ -1,10 +1,7 @@
-﻿#define BORDER_MATCHING
+﻿using System;
+using System.Collections.Generic;
 
 namespace Dalamud.Utility;
-
-using System;
-using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 
 public readonly ref struct FuzzyMatcher
 {
@@ -14,27 +11,13 @@ public readonly ref struct FuzzyMatcher
     private readonly ReadOnlySpan<char> needleSpan = ReadOnlySpan<char>.Empty;
     private readonly int needleFinalPosition = -1;
     private readonly (int start, int end)[] needleSegments = EmptySegArray;
-    private readonly MatchMode mode = MatchMode.Simple;
 
-    public FuzzyMatcher(string term, MatchMode matchMode)
+    public FuzzyMatcher(string term)
     {
         needleString = term;
         needleSpan = needleString.AsSpan();
         needleFinalPosition = needleSpan.Length - 1;
-        mode = matchMode;
-
-        switch (matchMode)
-        {
-            case MatchMode.FuzzyParts:
-                needleSegments = FindNeedleSegments(needleSpan);
-                break;
-            case MatchMode.Fuzzy:
-            case MatchMode.Simple:
-                needleSegments = EmptySegArray;
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(matchMode), matchMode, null);
-        }
+        needleSegments = FindNeedleSegments(needleSpan);
     }
 
     private static (int start, int end)[] FindNeedleSegments(ReadOnlySpan<char> span)
@@ -68,47 +51,31 @@ public readonly ref struct FuzzyMatcher
 
     public int Matches(string value)
     {
-        if (needleFinalPosition < 0)
-        {
-            return 0;
-        }
-
-        if (mode == MatchMode.Simple)
-        {
-            return value.Contains(needleString) ? 1 : 0;
+        if (value.Contains(needleString)) {
+            return 100;
         }
 
         var haystack = value.AsSpan();
 
-        if (mode == MatchMode.Fuzzy)
+        if (needleSegments.Length < 2)
         {
             return GetRawScore(haystack, 0, needleFinalPosition);
         }
 
-        if (mode == MatchMode.FuzzyParts)
+        var total = 0;
+        for (var i = 0; i < needleSegments.Length; i++)
         {
-            if (needleSegments.Length < 2)
+            var (start, end) = needleSegments[i];
+            var cur = GetRawScore(haystack, start, end);
+            if (cur == 0)
             {
-                return GetRawScore(haystack, 0, needleFinalPosition);
+                return 0;
             }
 
-            var total = 0;
-            for (var i = 0; i < needleSegments.Length; i++)
-            {
-                var (start, end) = needleSegments[i];
-                var cur = GetRawScore(haystack, start, end);
-                if (cur == 0)
-                {
-                    return 0;
-                }
-
-                total += cur;
-            }
-
-            return total;
+            total += cur;
         }
 
-        return 8;
+        return total;
     }
 
     public int MatchesAny(params string[] values)
@@ -128,41 +95,27 @@ public readonly ref struct FuzzyMatcher
 
     private int GetRawScore(ReadOnlySpan<char> haystack, int needleStart, int needleEnd)
     {
-        var (startPos, gaps, consecutive, borderMatches, endPos) = FindForward(haystack, needleStart, needleEnd);
-        if (startPos < 0)
+        var (matchPos, gaps, consecutive, borderMatches, endPos) = FindForward(haystack, needleStart, needleEnd);
+        if (matchPos < 0)
         {
             return 0;
         }
 
         var needleSize = needleEnd - needleStart + 1;
 
-        var score = CalculateRawScore(needleSize, startPos, gaps, consecutive, borderMatches);
-        // PluginLog.Debug(
-        //     $"['{needleString.Substring(needleStart, needleEnd - needleStart + 1)}' in '{haystack}'] fwd: needleSize={needleSize} startPos={startPos} gaps={gaps} consecutive={consecutive} borderMatches={borderMatches} score={score}");
+        var score = CalculateRawScore(needleSize, matchPos, gaps, consecutive, borderMatches);
+        // Console.WriteLine(
+        //     $"['{needleString.Substring(needleStart, needleEnd - needleStart + 1)}' in '{haystack}'] fwd: needleSize={needleSize} startPos={matchPos} gaps={gaps} consecutive={consecutive} borderMatches={borderMatches} score={score}");
 
-        (startPos, gaps, consecutive, borderMatches) = FindReverse(haystack, endPos, needleStart, needleEnd);
-        var revScore = CalculateRawScore(needleSize, startPos, gaps, consecutive, borderMatches);
-        // PluginLog.Debug(
-        //     $"['{needleString.Substring(needleStart, needleEnd - needleStart + 1)}' in '{haystack}'] rev: needleSize={needleSize} startPos={startPos} gaps={gaps} consecutive={consecutive} borderMatches={borderMatches} score={revScore}");
+        (matchPos, gaps, consecutive, borderMatches) = FindReverse(haystack, endPos, needleStart, needleEnd);
+        var revScore = CalculateRawScore(needleSize, matchPos, gaps, consecutive, borderMatches);
+        // Console.WriteLine(
+        //     $"['{needleString.Substring(needleStart, needleEnd - needleStart + 1)}' in '{haystack}'] rev: needleSize={needleSize} startPos={matchPos} gaps={gaps} consecutive={consecutive} borderMatches={borderMatches} score={revScore}");
 
         return int.Max(score, revScore);
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int CalculateRawScore(int needleSize, int startPos, int gaps, int consecutive, int borderMatches)
-    {
-        var score = 100
-                    + needleSize * 3
-                    + borderMatches * 3
-                    + consecutive * 5
-                    - startPos
-                    - gaps * 2;
-        if (startPos == 0)
-            score += 5;
-        return score < 1 ? 1 : score;
-    }
-
-    private (int startPos, int gaps, int consecutive, int borderMatches, int haystackIndex) FindForward(
+    private (int matchPos, int gaps, int consecutive, int borderMatches, int haystackIndex) FindForward(
         ReadOnlySpan<char> haystack, int needleStart, int needleEnd)
     {
         var needleIndex = needleStart;
@@ -177,16 +130,6 @@ public readonly ref struct FuzzyMatcher
         {
             if (haystack[haystackIndex] == needleSpan[needleIndex])
             {
-#if BORDER_MATCHING
-                if (haystackIndex > 0)
-                {
-                    if (!char.IsLetterOrDigit(haystack[haystackIndex - 1]))
-                    {
-                        borderMatches++;
-                    }
-                }
-#endif
-
                 needleIndex++;
 
                 if (haystackIndex == lastMatchIndex + 1)
@@ -217,7 +160,7 @@ public readonly ref struct FuzzyMatcher
         return (-1, 0, 0, 0, 0);
     }
 
-    private (int startPos, int gaps, int consecutive, int borderMatches) FindReverse(ReadOnlySpan<char> haystack,
+    private (int matchPos, int gaps, int consecutive, int borderMatches) FindReverse(ReadOnlySpan<char> haystack,
         int haystackLastMatchIndex, int needleStart, int needleEnd)
     {
         var needleIndex = needleEnd;
@@ -231,16 +174,6 @@ public readonly ref struct FuzzyMatcher
         {
             if (haystack[haystackIndex] == needleSpan[needleIndex])
             {
-#if BORDER_MATCHING
-                if (haystackIndex > 0)
-                {
-                    if (!char.IsLetterOrDigit(haystack[haystackIndex - 1]))
-                    {
-                        borderMatches++;
-                    }
-                }
-#endif
-
                 needleIndex--;
 
                 if (haystackIndex == revLastMatchIndex - 1)
@@ -263,11 +196,16 @@ public readonly ref struct FuzzyMatcher
 
         return (-1, 0, 0, 0);
     }
-}
 
-public enum MatchMode
-{
-    Simple,
-    Fuzzy,
-    FuzzyParts
+    public static int CalculateRawScore(int needleSize, int matchPos, int gaps, int consecutive, int borderMatches)
+    {
+        var score = 100
+                    + (needleSize * 3)
+                    + (borderMatches * 3)
+                    + (consecutive * 5)
+                    - (gaps * 10);
+        if (matchPos == 0)
+            score += 5;
+        return score < 1 ? 1 : score;
+    }
 }
