@@ -10,6 +10,7 @@ using Dalamud.Interface.Components;
 using Dalamud.Interface.Internal.Notifications;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using Dalamud.Logging.Internal;
 using Dalamud.Plugin.Internal;
 using Dalamud.Plugin.Internal.Profiles;
 using Dalamud.Utility;
@@ -29,6 +30,8 @@ internal class ProfileManagerWidget
 
     private string pickerSearch = string.Empty;
     private string profileNameEdit = string.Empty;
+
+    private Guid draggingProfileGuid;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ProfileManagerWidget"/> class.
@@ -158,6 +161,7 @@ internal class ProfileManagerWidget
     {
         var didAny = false;
         var profman = Service<ProfileManager>.Get();
+        Guid? swapTarget = null;
 
         if (ImGuiComponents.IconButton(FontAwesomeIcon.Plus))
             profman.AddNewProfile();
@@ -207,7 +211,7 @@ internal class ProfileManagerWidget
             Guid? toCloneGuid = null;
 
             using var syncScope = profman.GetSyncScope();
-            foreach (var profile in profman.Profiles)
+            foreach (var (profile, index) in profman.Profiles.WithIndex())
             {
                 if (profile.IsDefaultProfile)
                     continue;
@@ -223,10 +227,32 @@ internal class ProfileManagerWidget
                 ImGuiHelpers.ScaledDummy(3);
                 ImGui.SameLine();
 
-                ImGui.Text(profile.Name);
+                ImGui.PushStyleColor(ImGuiCol.Button, Vector4.Zero);
+                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, Vector4.Zero);
+                ImGui.PushStyleColor(ImGuiCol.ButtonActive, Vector4.Zero);
+                ImGui.Button($"{profile.Name}###profileName{profile.Guid}");
+
+                if (ImGui.BeginDragDropSource()) {
+                    ImGui.SetDragDropPayload("DALAMUD_PROFILE", IntPtr.Zero, 0);
+                    ImGui.Button(profile.Name);
+                    ImGui.EndDragDropSource();
+                    this.draggingProfileGuid = profile.Guid;
+                }
+
+                if (ImGui.BeginDragDropTarget()) {
+                    ImGui.AcceptDragDropPayload("DALAMUD_PROFILE");
+                    if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+                    {
+                        swapTarget = profile.Guid;
+                    }
+
+                    ImGui.EndDragDropTarget();
+                }
+
+                ImGui.PopStyleColor(3);
 
                 ImGui.SameLine();
-                ImGui.SetCursorPosX(windowSize.X - (ImGuiHelpers.GlobalScale * 30));
+                ImGui.SetCursorPosX(windowSize.X - (ImGuiHelpers.GlobalScale * 30) - ImGui.GetStyle().ScrollbarSize);
 
                 if (ImGuiComponents.IconButton($"###editButton{profile.Guid}", FontAwesomeIcon.PencilAlt))
                 {
@@ -239,7 +265,7 @@ internal class ProfileManagerWidget
                     ImGui.SetTooltip(Locs.EditProfileHint);
 
                 ImGui.SameLine();
-                ImGui.SetCursorPosX(windowSize.X - (ImGuiHelpers.GlobalScale * 30 * 2) - 5);
+                ImGui.SetCursorPosX(windowSize.X - (ImGuiHelpers.GlobalScale * 30 * 2) - 5 - ImGui.GetStyle().ScrollbarSize);
 
                 if (ImGuiComponents.IconButton($"###cloneButton{profile.Guid}", FontAwesomeIcon.Copy))
                     toCloneGuid = profile.Guid;
@@ -248,7 +274,7 @@ internal class ProfileManagerWidget
                     ImGui.SetTooltip(Locs.CloneProfileHint);
 
                 ImGui.SameLine();
-                ImGui.SetCursorPosX(windowSize.X - (ImGuiHelpers.GlobalScale * 30 * 3) - 5);
+                ImGui.SetCursorPosX(windowSize.X - (ImGuiHelpers.GlobalScale * 30 * 3) - 5 - ImGui.GetStyle().ScrollbarSize);
 
                 if (ImGuiComponents.IconButton($"###exportButton{profile.Guid}", FontAwesomeIcon.FileExport))
                 {
@@ -267,6 +293,11 @@ internal class ProfileManagerWidget
             if (toCloneGuid != null)
             {
                 profman.CloneProfile(profman.Profiles.First(x => x.Guid == toCloneGuid));
+            }
+
+            if (swapTarget != null)
+            {
+                profman.MoveProfile(this.draggingProfileGuid, swapTarget.Value);
             }
 
             if (!didAny)

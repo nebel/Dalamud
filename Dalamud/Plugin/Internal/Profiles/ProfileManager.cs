@@ -279,6 +279,28 @@ internal class ProfileManager : IServiceType
         this.config.QueueSave();
     }
 
+    /// <summary>
+    /// Moves a profile to the specified position in the profile list.
+    /// </summary>
+    /// <param name="srcGuid">The guid of the profile to move.</param>
+    /// <param name="targetGuid">The guid of the profile at the position it should be moved to.</param>
+    public void MoveProfile(Guid srcGuid, Guid targetGuid)
+    {
+        var runtimeSrcIndex = this.profiles.IndexOf(p => p.Guid == srcGuid);
+        var runtimeTargetIndex = this.profiles.IndexOf(p => p.Guid == targetGuid);
+        var runtimeProfile = this.profiles[runtimeSrcIndex];
+        this.profiles.RemoveAt(runtimeSrcIndex);
+        this.profiles.Insert(runtimeTargetIndex, runtimeProfile);
+
+        var savedSrcIndex = this.config.SavedProfiles!.IndexOf(p => p.Guid == srcGuid);
+        var savedTargetIndex = this.config.SavedProfiles!.IndexOf(p => p.Guid == targetGuid);
+        var savedProfile = this.config.SavedProfiles![savedSrcIndex];
+        this.config.SavedProfiles!.RemoveAt(savedSrcIndex);
+        this.config.SavedProfiles!.Insert(savedTargetIndex, savedProfile);
+
+        this.config.QueueSave();
+    }
+
     private string GenerateUniqueProfileName(string startingWith)
     {
         if (this.profiles.All(x => x.Name != startingWith))
