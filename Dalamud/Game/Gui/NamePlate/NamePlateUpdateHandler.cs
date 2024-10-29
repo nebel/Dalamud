@@ -411,7 +411,7 @@ internal unsafe class NamePlateUpdateHandler : INamePlateUpdateHandler
     }
 
     /// <inheritdoc/>
-    public bool IsUpdating => (this.UpdateFlags & 1) != 0;
+    public bool IsUpdating => (this.UpdateFlags & 1) != 0/* || this.NamePlateObject->BakeData.IsBaked == 0*/;
 
     /// <inheritdoc/>
     public bool IsPrefixTitle
@@ -490,7 +490,7 @@ internal unsafe class NamePlateUpdateHandler : INamePlateUpdateHandler
     private AddonNamePlate.NamePlateObject* NamePlateObject =>
         &this.context.Addon->NamePlateObjectArray[this.NamePlateIndex];
 
-    private AddonNamePlate.NamePlateIntArrayData.NamePlateObjectIntArrayData* ObjectData =>
+    private AddonNamePlate.AddonNamePlateNumberArray.NamePlateObjectIntArrayData* ObjectData =>
         this.context.NumberStruct->ObjectData.GetPointer(this.ArrayIndex);
 
     /// <inheritdoc/>
