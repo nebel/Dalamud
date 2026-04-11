@@ -854,9 +854,10 @@ internal class PluginManager : IInternalDisposableService
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     public async Task<LocalPlugin> InstallPluginAsync(
         RemotePluginManifest repoManifest, bool useTesting, PluginLoadReason reason,
+        DownloadProgress? downloadProgress = null,
         Guid? inheritedWorkingPluginId = null)
     {
-        var stream = await this.DownloadPluginAsync(repoManifest, useTesting);
+        var stream = await this.DownloadPluginAsync(repoManifest, useTesting, downloadProgress);
         return await this.InstallPluginInternalAsync(repoManifest, useTesting, reason, stream, inheritedWorkingPluginId);
     }
 
@@ -1388,23 +1389,66 @@ internal class PluginManager : IInternalDisposableService
         this.profileManager.ParanoiaValidateProfiles();
     }
 
-    private async Task<Stream> DownloadPluginAsync(RemotePluginManifest repoManifest, bool useTesting)
+    // private async Task<Stream> DownloadPluginAsync(RemotePluginManifest repoManifest, bool useTesting)
+    // {
+    //     var downloadUrl = useTesting ? repoManifest.DownloadLinkTesting : repoManifest.DownloadLinkInstall;
+    //     var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl)
+    //     {
+    //         Headers =
+    //         {
+    //             Accept =
+    //             {
+    //                 new MediaTypeWithQualityHeaderValue("application/zip"),
+    //             },
+    //         },
+    //     };
+    //     var response = await this.happyHttpClient.SharedHttpClient.SendAsync(request);
+    //     response.EnsureSuccessStatusCode();
+    //
+    //     return await response.Content.ReadAsStreamAsync();
+    // }
+
+    private async Task<Stream> DownloadPluginAsync(
+        RemotePluginManifest repoManifest,
+        bool useTesting,
+        DownloadProgress? progress = null,
+        CancellationToken cancellationToken = default)
     {
-        var downloadUrl = useTesting ? repoManifest.DownloadLinkTesting : repoManifest.DownloadLinkInstall;
-        var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl)
-        {
-            Headers =
-            {
-                Accept =
-                {
-                    new MediaTypeWithQualityHeaderValue("application/zip"),
-                },
-            },
-        };
-        var response = await this.happyHttpClient.SharedHttpClient.SendAsync(request);
+        var downloadUrl = useTesting
+                              ? repoManifest.DownloadLinkTesting
+                              : repoManifest.DownloadLinkInstall;
+
+        var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
+        request.Headers.Accept.Add(
+            new MediaTypeWithQualityHeaderValue("application/zip"));
+
+        var response = await this.happyHttpClient.SharedHttpClient.SendAsync(
+                           request,
+                           HttpCompletionOption.ResponseHeadersRead,
+                           cancellationToken);
+
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadAsStreamAsync();
+        var contentLength = response.Content.Headers.ContentLength;
+        if (contentLength.HasValue)
+            progress?.SetTotal(contentLength.Value);
+
+        var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var memoryStream = new MemoryStream();
+
+        var buffer = new byte[0x10000];
+        var totalRead = 0L;
+        int bytesRead;
+
+        while ((bytesRead = await responseStream.ReadAsync(buffer, cancellationToken)) > 0)
+        {
+            await memoryStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+            totalRead += bytesRead;
+            progress?.Report(totalRead);
+        }
+
+        memoryStream.Position = 0;
+        return memoryStream;
     }
 
     /// <summary>

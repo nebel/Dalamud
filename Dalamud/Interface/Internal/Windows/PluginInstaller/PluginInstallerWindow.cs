@@ -134,6 +134,7 @@ internal class PluginInstallerWindow : Window, IDisposable
     private Guid enableDisableWorkingPluginId = Guid.Empty;
 
     private LoadingIndicatorKind loadingIndicatorKind = LoadingIndicatorKind.Unknown;
+    private DownloadProgress? downloadProgress = null;
 
     private string verifiedCheckmarkHoveredPlugin = string.Empty;
 
@@ -396,7 +397,10 @@ internal class PluginInstallerWindow : Window, IDisposable
         this.installStatus = OperationStatus.InProgress;
         this.loadingIndicatorKind = LoadingIndicatorKind.Installing;
 
-        Task.Run(() => pluginManager.InstallPluginAsync(manifest, useTesting || manifest.IsTestingExclusive, PluginLoadReason.Installer))
+        var downloadProgress = new DownloadProgress(manifest.Name, useTesting);
+        this.downloadProgress = downloadProgress;
+
+        Task.Run(() => pluginManager.InstallPluginAsync(manifest, useTesting || manifest.IsTestingExclusive, PluginLoadReason.Installer, downloadProgress))
             .ContinueWith(task =>
             {
                 // There is no need to set as Complete for an individual plugin installation
@@ -599,6 +603,8 @@ internal class PluginInstallerWindow : Window, IDisposable
                     break;
                 case LoadingIndicatorKind.Installing:
                     ImGuiHelpers.CenteredText("Installing plugin...");
+                    if (this.downloadProgress != null)
+                        ImGuiHelpers.CenteredText(this.downloadProgress.GetDescription());
                     break;
                 case LoadingIndicatorKind.Manager:
                     {
